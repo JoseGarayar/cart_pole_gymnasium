@@ -1,2 +1,9 @@
 # Virtual environments
 .venv/
+
+__pycache__
+/logs
+/models
+/*.pkl
+/*.png
+/*.pt
