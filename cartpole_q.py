@@ -3,9 +3,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pickle
 
-def run(is_training=True, render=False):
+def run(is_training=True, render=False, version='v1'):
 
-    env = gym.make('CartPole-v1', render_mode='human' if render else None)
+    env = gym.make('CartPole-' + version, render_mode='human' if render else None)
 
     # Divide position, velocity, pole angle, and pole angular velocity into segments
     pos_space = np.linspace(-2.4, 2.4, 10)
@@ -16,7 +16,7 @@ def run(is_training=True, render=False):
     if(is_training):
         q = np.zeros((len(pos_space)+1, len(vel_space)+1, len(ang_space)+1, len(ang_vel_space)+1, env.action_space.n)) # init a 11x11x11x11x2 array
     else:
-        f = open('cartpole.pkl', 'rb')
+        f = open('cartpole_' + version + '.pkl', 'rb')
         q = pickle.load(f)
         f.close()
 
@@ -80,7 +80,8 @@ def run(is_training=True, render=False):
         if is_training and i%100==0:
             print(f'Episode: {i} {rewards}  Epsilon: {epsilon:0.2f}  Mean Rewards {mean_rewards:0.1f}')
 
-        if mean_rewards>1000:
+        threshold_rewards = 475 if version == 'v1' else 195
+        if mean_rewards > threshold_rewards:
             break
 
         epsilon = max(epsilon - epsilon_decay_rate, 0)
@@ -91,7 +92,7 @@ def run(is_training=True, render=False):
 
     # Save Q table to file
     if is_training:
-        f = open('cartpole.pkl','wb')
+        f = open('cartpole_' + version + '.pkl','wb')
         pickle.dump(q, f)
         f.close()
 
@@ -99,9 +100,9 @@ def run(is_training=True, render=False):
     for t in range(i):
         mean_rewards.append(np.mean(rewards_per_episode[max(0, t-100):(t+1)]))
     plt.plot(mean_rewards)
-    plt.savefig(f'cartpole.png')
+    plt.savefig(f'cartpole_' + version + '.png')
 
 if __name__ == '__main__':
-    # run(is_training=True, render=False)
+    run(is_training=True, render=False, version='v0')
 
-    run(is_training=False, render=True)
+    # run(is_training=False, render=True, version='v0')
