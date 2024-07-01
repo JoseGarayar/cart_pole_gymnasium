@@ -17,13 +17,13 @@ def create_bins(num_bins, lower_bounds, upper_bounds):
     return bins
 
 # Definir el entorno y parámetros
-env = gym.make('CartPole-v1', render_mode='human')
-n_episodes = 1000
-max_steps = 200
+env = gym.make('CartPole-v1', render_mode=None)
+n_episodes = 100000
+max_steps = 10000
 gamma = 0.99
 alpha = 0.1
 epsilon = 1.0
-epsilon_decay = 0.995
+epsilon_decay_rate = 0.00001
 epsilon_min = 0.01
 num_bins = 10
 
@@ -59,11 +59,18 @@ for episode in range(n_episodes):
         if done:
             break
     rewards.append(total_reward)
-    if epsilon > epsilon_min:
-        epsilon *= epsilon_decay
-    if episode % 100 == 0:
-        print(f"Episode: {episode}, Reward: {total_reward}, Epsilon: {epsilon}")
+    epsilon = max(0, epsilon - epsilon_decay_rate)
 
+    if (episode + 1) % 1000 == 0 or episode == 0:
+        print(f"Episode: {episode + 1}, Reward: {total_reward}, Epsilon: {epsilon}")
+
+    if (episode + 1) >= 100:
+        mean_states = np.mean(rewards[episode - 99: episode + 1])
+        if (episode + 1) % 1000 == 0:
+            print(f'Step = {episode + 1}, Mean Rewards = {mean_states}')
+        if mean_states >= 195:
+            print(f'CART-POLE SOLVED AT EPISODE {episode + 1}, Mean Rewards = {mean_states:3f}')
+            break
 # Visualización de la solución
 for _ in range(5):
     state, _ = env.reset()
