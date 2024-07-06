@@ -1,163 +1,97 @@
 import gymnasium as gym
 import numpy as np
 import matplotlib.pyplot as plt
-import torch
-import torch.nn as nn
-import torch.optim as optim
-import random
-from collections import deque
+import pickle
 
-# Definir la red neuronal para DQN
-class DQN(nn.Module):
-    def __init__(self, state_size, action_size):
-        super(DQN, self).__init__()
-        self.fc1 = nn.Linear(state_size, 24)
-        self.fc2 = nn.Linear(24, 24)
-        self.fc3 = nn.Linear(24, action_size)
+def create_discrete_spaces():
+    pos_space = np.linspace(-2.4, 2.4, 10)
+    vel_space = np.linspace(-4, 4, 10)
+    ang_space = np.linspace(-0.2095, 0.2095, 10)
+    ang_vel_space = np.linspace(-4, 4, 10)
+    return pos_space, vel_space, ang_space, ang_vel_space
+
+def initialize_q_table(pos_space, vel_space, ang_space, ang_vel_space, action_space_n, is_training, version):
+    if is_training:
+        return np.zeros((len(pos_space)+1, len(vel_space)+1, len(ang_space)+1, len(ang_vel_space)+1, action_space_n))
+    else:
+        with open(f'cartpole_{version}.pkl', 'rb') as f:
+            return pickle.load(f)
+
+def choose_action(q, state_indices, action_space, epsilon, is_training, rng):
+    if is_training and rng.random() < epsilon:
+        return action_space.sample()
+    else:
+        return np.argmax(q[state_indices])
+
+def update_q_table(q, state_indices, action, reward, new_state_indices, learning_rate, discount_factor):
+    q[state_indices][action] += learning_rate * (reward + discount_factor * np.max(q[new_state_indices]) - q[state_indices][action])
+
+def run_episode(env, q, pos_space, vel_space, ang_space, ang_vel_space, is_training, rng, epsilon, learning_rate, discount_factor):
+    state = env.reset()[0]
+    state_indices = tuple(np.digitize(state[i], space) for i, space in enumerate([pos_space, vel_space, ang_space, ang_vel_space]))
+    terminated = False
+    total_reward = 0
+
+    while not terminated and total_reward < 10000:
+        action = choose_action(q, state_indices, env.action_space, epsilon, is_training, rng)
+        new_state, reward, terminated, _, _ = env.step(action)
+        new_state_indices = tuple(np.digitize(new_state[i], space) for i, space in enumerate([pos_space, vel_space, ang_space, ang_vel_space]))
+
+        if is_training:
+            update_q_table(q, state_indices, action, reward, new_state_indices, learning_rate, discount_factor)
+
+        state_indices = new_state_indices
+        total_reward += reward
+
+    return total_reward
+
+def save_q_table(q, version):
+    with open(f'cartpole_{version}.pkl', 'wb') as f:
+        pickle.dump(q, f)
+
+def plot_rewards(rewards_per_episode, version):
+    mean_rewards = [np.mean(rewards_per_episode[max(0, t-100):(t+1)]) for t in range(len(rewards_per_episode))]
+    plt.plot(mean_rewards)
+    plt.savefig(f'cartpole_{version}.png')
+
+def run(is_training=True, render=False, version='v1'):
+    env = gym.make(f'CartPole-{version}', render_mode='human' if render else None)
+    pos_space, vel_space, ang_space, ang_vel_space = create_discrete_spaces()
+    q = initialize_q_table(pos_space, vel_space, ang_space, ang_vel_space, env.action_space.n, is_training, version)
     
-    def forward(self, state):
-        x = torch.relu(self.fc1(state))
-        x = torch.relu(self.fc2(x))
-        return self.fc3(x)
+    learning_rate = 0.1
+    discount_factor = 0.99
+    epsilon = 1
+    epsilon_decay_rate = 0.00001
+    rng = np.random.default_rng()
+    rewards_per_episode = []
+    episode = 0
 
-# Parámetros comunes
-env = gym.make('CartPole-v1', render_mode='human')
-state_size = env.observation_space.shape[0]
-action_size = env.action_space.n
-n_episodes = 1000
-max_steps = 200
-gamma = 0.99
-epsilon = 1.0
-epsilon_decay = 0.995
-epsilon_min = 0.01
+    while True:
+        reward = run_episode(env, q, pos_space, vel_space, ang_space, ang_vel_space, is_training, rng, epsilon, learning_rate, discount_factor)
+        rewards_per_episode.append(reward)
+        mean_rewards = np.mean(rewards_per_episode[-100:])
 
-# Q-learning con discretización
-num_bins = 10
-alpha = 0.1
-lower_bounds = [env.observation_space.low[0], -0.5, env.observation_space.low[2], -0.5]
-upper_bounds = [env.observation_space.high[0], 0.5, env.observation_space.high[2], 0.5]
+        if is_training and episode % 100 == 0:
+            print(f'Episode: {episode} Rewards: {reward} Epsilon: {epsilon:.2f} Mean Rewards: {mean_rewards:.1f}')
 
-def create_bins(num_bins, lower_bounds, upper_bounds):
-    bins = []
-    for i in range(len(lower_bounds)):
-        bins.append(np.linspace(lower_bounds[i], upper_bounds[i], num_bins))
-    return bins
-
-bins = create_bins(num_bins, lower_bounds, upper_bounds)
-q_table = np.zeros((num_bins, num_bins, num_bins, num_bins, action_size))
-
-def discretize_state(state, bins):
-    discretized = []
-    for i in range(len(state)):
-        discretized.append(np.digitize(state[i], bins[i]) - 1)
-    return tuple(discretized)
-
-def choose_action_qlearning(state):
-    if np.random.rand() <= epsilon:
-        return env.action_space.sample()
-    discretized_state = discretize_state(state, bins)
-    return np.argmax(q_table[discretized_state])
-
-# Agente DQN
-class DQNAgent:
-    def __init__(self, state_size, action_size):
-        self.state_size = state_size
-        self.action_size = action_size
-        self.memory = deque(maxlen=2000)
-        self.epsilon = epsilon
-        self.gamma = gamma
-        self.epsilon_decay = epsilon_decay
-        self.epsilon_min = epsilon_min
-        self.learning_rate = 0.001
-        self.model = DQN(state_size, action_size)
-        self.model.apply(self.init_weights)
-        self.criterion = nn.MSELoss()
-        self.optimizer = optim.Adam(self.model.parameters(), lr=self.learning_rate)
-    
-    def init_weights(self, m):
-        if isinstance(m, nn.Linear):
-            nn.init.xavier_uniform_(m.weight)
-            m.bias.data.fill_(0.01)
-    
-    def remember(self, state, action, reward, next_state, done):
-        self.memory.append((state, action, reward, next_state, done))
-    
-    def act(self, state):
-        if np.random.rand() <= self.epsilon:
-            return random.randrange(self.action_size)
-        state = torch.FloatTensor(state).unsqueeze(0)
-        act_values = self.model(state)
-        return np.argmax(act_values.detach().numpy()[0])
-    
-    def replay(self, batch_size):
-        minibatch = random.sample(self.memory, batch_size)
-        for state, action, reward, next_state, done in minibatch:
-            target = reward
-            if not done:
-                next_state = torch.FloatTensor(next_state).unsqueeze(0)
-                target = reward + self.gamma * torch.max(self.model(next_state).detach()).item()
-            target_f = self.model(torch.FloatTensor(state).unsqueeze(0)).detach().numpy()
-            target_f[0][action] = target
-            target_f = torch.FloatTensor(target_f)
-            self.model.train()
-            output = self.model(torch.FloatTensor(state).unsqueeze(0))
-            loss = self.criterion(output, target_f)
-            self.optimizer.zero_grad()
-            loss.backward()
-            self.optimizer.step()
-        if self.epsilon > self.epsilon_min:
-            self.epsilon *= self.epsilon_decay
-
-agent = DQNAgent(state_size, action_size)
-
-# Entrenamiento de Q-learning y DQN
-rewards_qlearning = []
-rewards_dqn = []
-
-for episode in range(n_episodes):
-    state, _ = env.reset()
-    total_reward_qlearning = 0
-    total_reward_dqn = 0
-
-    # Q-learning
-    for step in range(max_steps):
-        action = choose_action_qlearning(state)
-        next_state, reward, done, _, _ = env.step(action)
-        total_reward_qlearning += reward
-        discretized_state = discretize_state(state, bins)
-        discretized_next_state = discretize_state(next_state, bins)
-        best_next_action = np.argmax(q_table[discretized_next_state])
-        q_table[discretized_state][action] = q_table[discretized_state][action] + alpha * (reward + gamma * q_table[discretized_next_state][best_next_action] - q_table[discretized_state][action])
-        state = next_state
-        if done:
+        threshold_rewards = 475 if version == 'v1' else 195
+        if mean_rewards > threshold_rewards:
             break
-    rewards_qlearning.append(total_reward_qlearning)
 
-    # DQN
-    state, _ = env.reset()
-    for step in range(max_steps):
-        action = agent.act(state)
-        next_state, reward, done, _, _ = env.step(action)
-        total_reward_dqn += reward
-        agent.remember(state, action, reward, next_state, done)
-        state = next_state
-        if done:
-            break
-        if len(agent.memory) > 64:
-            agent.replay(64)
-    rewards_dqn.append(total_reward_dqn)
+        epsilon = max(epsilon - epsilon_decay_rate, 0)
+        episode += 1
 
-    if episode % 100 == 0:
-        print(f"Episode: {episode}, Q-learning Reward: {total_reward_qlearning}, DQN Reward: {total_reward_dqn}, Epsilon: {epsilon}")
+   
+    env.close()
 
-    if epsilon > epsilon_min:
-        epsilon *= epsilon_decay
+    
 
-# Visualización de resultados
-plt.plot(rewards_qlearning, label='Q-learning')
-plt.plot(rewards_dqn, label='DQN')
-plt.xlabel('Episode')
-plt.ylabel('Reward')
-plt.legend()
-plt.title('Reinforcement Learning Performance Comparison')
-plt.show()
+    if is_training:
+        save_q_table(q, version)
+
+    plot_rewards(rewards_per_episode, version)
+
+if __name__ == '__main__':
+    # run(is_training=True, render=False, version='v1')
+    run(is_training=False, render=True, version='v1')
