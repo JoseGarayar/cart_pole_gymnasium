@@ -2,3 +2,5 @@ gymnasium==0.29.1
 gymnasium[classic-control]
 numpy
 matplotlib
+pandas==2.2.1
+scikit-learn==1.2.2
