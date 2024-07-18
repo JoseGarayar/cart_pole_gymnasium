@@ -7,6 +7,20 @@ import pickle
 import time
 import random
 
+def plot_rewards(iter, rewards_per_episode, version, discretizer ,
+        learning_rate_a ,
+        discount_factor_g ,
+        epsilon_decay_rate ):
+    
+    mean_rewards = [np.mean(rewards_per_episode[max(0, t-100):(t+1)]) for t in range(len(rewards_per_episode))]
+    plt.figure()
+    plt.plot(mean_rewards)
+    plt.xlabel('Episodes')
+    plt.ylabel('Mean Reward (Last 100 Episodes)')
+    plt.title(f'Q - CartPole {version} - discretizer {discretizer} - lr {learning_rate_a} - df {discount_factor_g} - ed {epsilon_decay_rate}')
+    iter_n = '' if iter is None else f'_{str(iter).zfill(4)}'
+    plt.savefig(f"plots/q/{version.lower()}/cartpole_{version.lower()}{iter_n}.png")
+
 def run(is_training = True, 
         render = False, 
         version = 'v1',
@@ -31,7 +45,7 @@ def run(is_training = True,
         q = np.zeros((len(pos_space)+1, len(vel_space)+1, len(ang_space)+1, len(ang_vel_space)+1, env.action_space.n)) # init a 11x11x11x11x2 array
     else:
         iter_n = '' if iter is None else f'_{str(iter).zfill(4)}'
-        f = open(f'models/{version.lower()}/cartpole_{version.lower()}{iter_n}.pkl', 'rb')
+        f = open(f'models/q/{version.lower()}/cartpole_{version.lower()}{iter_n}.pkl', 'rb')
         q = pickle.load(f)
         f.close()
 
@@ -91,7 +105,7 @@ def run(is_training = True,
         rewards_per_episode.append(rewards)
         mean_rewards = np.mean(rewards_per_episode[len(rewards_per_episode)-100:])
 
-        if verbose and is_training and i%1000==0:
+        if verbose and is_training and i%10000==0:
             print(f'Episode: {i} {rewards}  Epsilon: {epsilon:0.4f}  Mean Rewards {mean_rewards:0.1f}')
 
         threshold_rewards = 475 if version == 'v1' else 195
@@ -109,14 +123,14 @@ def run(is_training = True,
     # Save Q table to file
     if is_training:
         iter_n = '' if iter is None else f'_{str(iter).zfill(4)}'
-        f = open(f'models/{version.lower()}/cartpole_{version.lower()}{iter_n}.pkl', 'wb')
+        f = open(f'models/q/{version.lower()}/cartpole_{version.lower()}{iter_n}.pkl', 'wb')
         pickle.dump(q,f)
         f.close()
 
     # mean_rewards = []
     # for t in range(i):
     #     mean_rewards.append(np.mean(rewards_per_episode[max(0, t-100):(t+1)]))
-
+    plot_rewards(iter,rewards_per_episode, version, discretizer,learning_rate_a , discount_factor_g , epsilon_decay_rate )
     end_time = time.time()
 
     total_run_time = end_time - start_time
@@ -127,18 +141,18 @@ if __name__ == '__main__':
     # run(is_training=True, render=False, version='v0')
 
     # run(is_training=False, render=True, version='v0')
-    param_grid = {'learning_rate_a': [0.0001, 0.001, 0.01, 0.05, 0.1],
+    param_grid = {'learning_rate_a': [0.001, 0.01, 0.05, 0.1],
                   'discount_factor_g': np.linspace(0.9, 0.99, 10),
                   'epsilon_decay_rate': [0.00001, 0.0001, 0.001, 0.01],
                   'discretizer': [10, 15],
                   'version': ["v0","v1"]}
 
     param_comb = list(ParameterGrid(param_grid))
-    random.seed(150)
-    param_comb = random.sample(param_comb, len(param_comb))
-    random.seed(None)
+    # random.seed(150)
+    # param_comb = random.sample(param_comb, len(param_comb))
+    # random.seed(None)
     records = pd.DataFrame()
-    for iter, param in enumerate(param_comb[:2]):
+    for iter, param in enumerate(param_comb):
         print(f"""Version: {param['version']}, 
                 Iter: {iter}, 
                 learning_rate_a: {param['learning_rate_a']}, 
@@ -149,7 +163,7 @@ if __name__ == '__main__':
         episodes, mean_rewards, total_run_time, epsilon = run(is_training = True, 
                                      render = False, 
                                      version = param['version'],
-                                     verbose = True,
+                                     verbose = False,
                                      discretizer = param['discretizer'],
                                      learning_rate_a = param['learning_rate_a'],
                                      discount_factor_g = param['discount_factor_g'],
@@ -169,7 +183,7 @@ if __name__ == '__main__':
         
         records = pd.concat([records, record], axis = 0, ignore_index = True)
         
-        records.to_csv('output/evaluation.csv', index = False)
+        records.to_csv('output/Qevaluation.csv', index = False)
         # save 
         #plt.plot(mean_rewards)
-        plt.savefig(f"plots/{param['version'].lower()}/cartpole_{param['version'].lower()}{iter}.png")
+        # plt.savefig(f"plots/{param['version'].lower()}/cartpole_{param['version'].lower()}{iter}.png")

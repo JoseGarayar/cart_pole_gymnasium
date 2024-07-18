@@ -1,6 +1,8 @@
 # Virtual environments
 .venv/
-
+plots/
+models/
+/plots
 __pycache__
 /logs
 /models

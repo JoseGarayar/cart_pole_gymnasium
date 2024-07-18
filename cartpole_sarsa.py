@@ -1,30 +1,62 @@
 import gymnasium as gym
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
+from sklearn.model_selection import ParameterGrid
 import pickle
+import time
+import random
 
-def run(is_training=True, render=False, version='v1'):
+def plot_rewards(iter, rewards_per_episode, version, discretizer ,
+        learning_rate_a ,
+        discount_factor_g ,
+        epsilon_decay_rate ):
+    
+    mean_rewards = [np.mean(rewards_per_episode[max(0, t-100):(t+1)]) for t in range(len(rewards_per_episode))]
+    plt.figure()
+    plt.plot(mean_rewards)
+    plt.xlabel('Episodes')
+    plt.ylabel('Mean Reward (Last 100 Episodes)')
+    plt.title(f'SARSA - CartPole {version} - discretizer {discretizer} - lr {learning_rate_a} - df {discount_factor_g} - ed {epsilon_decay_rate}')
+    iter_n = '' if iter is None else f'_{str(iter).zfill(4)}'
+    plt.savefig(f"plots/sarsa/{version.lower()}/cartpole_{version.lower()}{iter_n}.png")
+
+
+
+def run(is_training = True, 
+        render = False, 
+        version = 'v1',
+        verbose = True,
+        discretizer = 10,
+        learning_rate_a = 0.1,
+        discount_factor_g = 0.99,
+        epsilon_decay_rate = 0.00001,
+        iter = None):
+    start_time = time.time()
+
 
     env = gym.make('CartPole-' + version, render_mode='human' if render else None)
 
-    # Divide position, velocity, pole angle, and pole angular velocity into segments
-    pos_space = np.linspace(-2.4, 2.4, 10)
-    vel_space = np.linspace(-4, 4, 10)
-    ang_space = np.linspace(-.2095, .2095, 10)
-    ang_vel_space = np.linspace(-4, 4, 10)
+    
+        # Divide position, velocity, pole angle, and pole angular velocity into segments
+    pos_space = np.linspace(-2.4, 2.4, discretizer)
+    vel_space = np.linspace(-4, 4, discretizer)
+    ang_space = np.linspace(-.2095, .2095, discretizer)
+    ang_vel_space = np.linspace(-4, 4, discretizer)
 
     if is_training:
         q = np.zeros((len(pos_space) + 1, len(vel_space) + 1, len(ang_space) + 1, len(ang_vel_space) + 1, env.action_space.n))  # init a 11x11x11x11x2 array
     else:
-        f = open('cartpole_' + version + '.pkl', 'rb')
+        iter_n = '' if iter is None else f'_{str(iter).zfill(4)}'
+        f = open(f'models/sarsa/{version.lower()}/cartpole_{version.lower()}{iter_n}.pkl', 'rb')
         q = pickle.load(f)
         f.close()
 
-    learning_rate_a = 0.1  # alpha or learning rate
-    discount_factor_g = 0.99  # gamma or discount factor.
+    learning_rate_a = learning_rate_a # alpha or learning rate
+    discount_factor_g = discount_factor_g # gamma or discount factor.
 
-    epsilon = 1  # 1 = 100% random actions
-    epsilon_decay_rate = 0.00001  # epsilon decay rate
+    epsilon = 1         # 1 = 100% random actions
+    epsilon_decay_rate = epsilon_decay_rate # epsilon decay rate
     rng = np.random.default_rng()  # random number generator
 
     rewards_per_episode = []
@@ -83,7 +115,7 @@ def run(is_training=True, render=False, version='v1'):
         rewards_per_episode.append(rewards)
         mean_rewards = np.mean(rewards_per_episode[len(rewards_per_episode) - 100:])
 
-        if is_training and i % 100 == 0:
+        if verbose and is_training and i % 10000 == 0:
             print(f'Episode: {i} {rewards}  Epsilon: {epsilon:0.2f}  Mean Rewards {mean_rewards:0.1f}')
 
         threshold_rewards = 475 if version == 'v1' else 195
@@ -92,23 +124,69 @@ def run(is_training=True, render=False, version='v1'):
 
         epsilon = max(epsilon - epsilon_decay_rate, 0)
 
+        if epsilon <= 0.00001:
+            break 
+
         i += 1
 
     env.close()
 
     # Save Q table to file
     if is_training:
-        f = open('cartpole_' + version + '.pkl', 'wb')
-        pickle.dump(q, f)
+        iter_n = '' if iter is None else f'_{str(iter).zfill(4)}'
+        f = open(f'models/sarsa/{version.lower()}/cartpole_{version.lower()}{iter_n}.pkl', 'wb')
+        pickle.dump(q,f)
         f.close()
 
-    mean_rewards = []
-    for t in range(i):
-        mean_rewards.append(np.mean(rewards_per_episode[max(0, t - 100):(t + 1)]))
-    plt.plot(mean_rewards)
-    plt.savefig(f'cartpole_' + version + '.png')
+    plot_rewards(iter,rewards_per_episode, version, discretizer,learning_rate_a , discount_factor_g , epsilon_decay_rate )
+    end_time = time.time()
+
+    total_run_time = end_time - start_time
+    return i+1, mean_rewards, total_run_time, epsilon
 
 if __name__ == '__main__':
     # run(is_training=True, render=False, version='v1')
 
-    run(is_training=False, render=True, version='v1')
+    param_grid = {'learning_rate_a': [0.001, 0.01, 0.05, 0.1],
+                  'discount_factor_g': np.linspace(0.9, 0.99, 10),
+                  'epsilon_decay_rate': [0.00001, 0.0001, 0.001, 0.01],
+                  'discretizer': [10, 15],
+                  'version': ["v0","v1"]}
+
+    param_comb = list(ParameterGrid(param_grid))
+    # random.seed(150)
+    # param_comb = random.sample(param_comb, len(param_comb))
+    # random.seed(None)
+    records = pd.DataFrame()
+    for iter, param in enumerate(param_comb):
+        print(f"""Version: {param['version']}, 
+                Iter: {iter}, 
+                learning_rate_a: {param['learning_rate_a']}, 
+                discount_factor_g: {param['discount_factor_g']}, 
+                epsilon_decay_rate: {param['epsilon_decay_rate']}, 
+                discretizer: {param['discretizer']}\n""")
+        print('Fit model ...')
+        episodes, mean_rewards, total_run_time, epsilon = run(is_training = True, 
+                                     render = False, 
+                                     version = param['version'],
+                                     verbose = False,
+                                     discretizer = param['discretizer'],
+                                     learning_rate_a = param['learning_rate_a'],
+                                     discount_factor_g = param['discount_factor_g'],
+                                     epsilon_decay_rate = param['epsilon_decay_rate'],
+                                     iter = iter)
+
+        print('Fitting done')
+
+        print('Save record')
+        record = pd.DataFrame({'iter': [iter],
+                               'version': [param['version']],
+                               'params': [str(param)],
+                               'episodes': [episodes],
+                               'mean_rewards': [mean_rewards],
+                               'total_run_time': [total_run_time],
+                               'epsilon': [epsilon]})
+        
+        records = pd.concat([records, record], axis = 0, ignore_index = True)
+        
+        records.to_csv('output/SARSAevaluation.csv', index = False)
