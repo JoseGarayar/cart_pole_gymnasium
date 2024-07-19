@@ -7,6 +7,20 @@ import pickle
 import time
 import random
 
+def plot_rewards(iter, rewards_per_episode, version, discretizer ,
+        learning_rate_a ,
+        discount_factor_g ,
+        epsilon_decay_rate ):
+
+    mean_rewards = [np.mean(rewards_per_episode[max(0, t-100):(t+1)]) for t in range(len(rewards_per_episode))]
+    plt.figure()
+    plt.plot(mean_rewards)
+    plt.xlabel('Episodes')
+    plt.ylabel('Mean Reward (Last 100 Episodes)')
+    plt.title(f'Q - CartPole {version} - discretizer {discretizer} - lr {learning_rate_a} - df {discount_factor_g} - ed {epsilon_decay_rate}')
+    iter_n = '' if iter is None else f'_{str(iter).zfill(4)}'
+    plt.savefig(f"plots/q/{version.lower()}/cartpole_{version.lower()}{iter_n}.png")
+
 def run(is_training = True, 
         render = False, 
         version = 'v1',
@@ -82,7 +96,7 @@ def run(is_training = True,
         rewards_per_episode.append(rewards)
         mean_rewards.append(np.mean(rewards_per_episode[max(0, i-100):i+1]))
 
-        if verbose and is_training and i % 1000 == 0:
+        if verbose and is_training and i%10000==0:
             print(f'Episode: {i}  Rewards: {rewards}  Epsilon: {epsilon:0.4f}  Mean Rewards {mean_rewards[-1]:0.1f}')
 
         threshold_rewards = 475 if version == 'v1' else 195
@@ -100,9 +114,10 @@ def run(is_training = True,
     # Save Q table to file
     if is_training:
         iter_n = '' if iter is None else f'_{str(iter).zfill(4)}'
-        with open(f'models/{version.lower()}/cartpole_{version.lower()}{iter_n}.pkl', 'wb') as f:
+        with open(f'models/q/{version.lower()}/cartpole_{version.lower()}{iter_n}.pkl', 'wb') as f:
             pickle.dump(q, f)
 
+    plot_rewards(iter,rewards_per_episode, version, discretizer,learning_rate_a , discount_factor_g , epsilon_decay_rate )
     end_time = time.time()
     total_run_time = end_time - start_time
 
@@ -120,20 +135,25 @@ if __name__ == '__main__':
                   'version': ['v0', 'v1']}
 
     param_comb = list(ParameterGrid(param_grid))
-    random.seed(150)
-    param_comb = random.sample(param_comb, len(param_comb))
-    random.seed(None)
+    # random.seed(150)
+    # param_comb = random.sample(param_comb, len(param_comb))
+    # random.seed(None)
 
     records = pd.DataFrame()
 
-    for iter, param in enumerate(param_comb[:2]):
-        print(f"Version: {param['version']}, Iter: {iter}, Learning Rate: {param['learning_rate_a']}, Discount Factor: {param['discount_factor_g']}, Epsilon Decay Rate: {param['epsilon_decay_rate']}, Discretizer: {param['discretizer']}")
+    for iter, param in enumerate(param_comb):
+        print(f"""Version: {param['version']}, 
+                Iter: {iter}, 
+                learning_rate_a: {param['learning_rate_a']}, 
+                discount_factor_g: {param['discount_factor_g']}, 
+                epsilon_decay_rate: {param['epsilon_decay_rate']}, 
+                discretizer: {param['discretizer']}\n""")
         print('Fit model ...')
 
         episodes, mean_rewards, total_run_time, epsilon = run(is_training=True, 
                                     render=False, 
                                     version=param['version'],
-                                    verbose=True,
+                                    verbose = False,
                                     discretizer=param['discretizer'],
                                     learning_rate_a=param['learning_rate_a'],
                                     discount_factor_g=param['discount_factor_g'],
@@ -153,7 +173,7 @@ if __name__ == '__main__':
 
         records = pd.concat([records, record], axis=0, ignore_index=True)
 
-        records.to_csv('output/evaluation.csv', index=False)
+        records.to_csv('output/Qevaluation.csv', index = False)
 
         # Plot mean rewards
         plt.figure()
@@ -161,5 +181,5 @@ if __name__ == '__main__':
         plt.xlabel('Episode')
         plt.ylabel('Mean Rewards')
         plt.title(f"CartPole {param['version']} - Iter {iter}")
-        plt.savefig(f"plots/{param['version'].lower()}/cartpole_{param['version'].lower()}{iter}.png")
+        # plt.savefig(f"plots/{param['version'].lower()}/cartpole_{param['version'].lower()}{iter}.png")
         plt.close()
